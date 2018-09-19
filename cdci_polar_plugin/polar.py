@@ -93,6 +93,7 @@ def polar_factory():
     print('--> conf_dir', conf_dir)
 
     return  Instrument('polar',
+                       asynch=False,
                        data_serve_conf_file=conf_file,
                        src_query=src_query,
                        instrumet_query=instr_query,
