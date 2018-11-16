@@ -53,10 +53,10 @@ from cdci_data_analysis.analysis.io_helper import FitsFile
 from cdci_data_analysis.analysis.queries import LightCurveQuery
 from cdci_data_analysis.analysis.products import LightCurveProduct,QueryProductList,QueryOutput
 from cdci_data_analysis.analysis.io_helper import FilePath
-from oda_api.data_products import NumpyDataProduct,NumpyDataUnit
+from oda_api.data_products import NumpyDataProduct,NumpyDataUnit,BinaryData
 
 from .polar_dataserve_dispatcher import PolarDispatcher
-
+from .polar_dataserve_dispatcher import  PolarAnalysisException
 
 
 class PolarLigthtCurve(LightCurveProduct):
@@ -116,6 +116,8 @@ class PolarLigthtCurve(LightCurveProduct):
         res_json = res.json()
         df = pd.read_json(res_json['data'])
 
+        root_file_path= prod_prefix + '_' + src_name+'.root'
+        root_file_path=FilePath(file_name=root_file_path,file_dir=out_dir)
         #NOTE np.array(df.to_records()) does not work with decoding in py27, because pandas puts the u in the dtyep name
         #NOTE works only if decoded with py36
 
@@ -131,10 +133,21 @@ class PolarLigthtCurve(LightCurveProduct):
             lc = cls(name=src_name, data=npd, header=None, file_name=file_name, out_dir=out_dir, prod_prefix=prod_prefix,
                      src_name=src_name,meta_data=meta_data)
 
-            lc_list.append(lc)
+
         else:
-            print("result",res) # logging?
-            raise Exception(res) # handle?
+            #print("result",res) # logging?
+            _d=res_json['status']['exceptions'][0]
+            print('_d',_d)
+            raise PolarAnalysisException(message='polar light curve failed: %s'%_d['comment'],debug_message=_d['kind'])
+
+
+        try:
+            open(root_file_path.path, "wb").write(BinaryData().decode(res_json['root_file_b64']))
+            lc.root_file_path=root_file_path
+        except :
+            raise PolarAnalysisException(message='polar failed to open/decode root_file')
+
+        lc_list.append(lc)
 
         return lc_list
 
@@ -173,7 +186,7 @@ class PolarLightCurveQuery(LightCurveQuery):
         param_dict=self.set_instr_dictionaries(T1,T2,E1,E2,delta_t)
 
         print ('build here',config,instrument)
-        q = PolarDispatcher(instrument=instrument,config=config,param_dict=param_dict,task='api/v1.0/lightcurve')
+        q = PolarDispatcher(instrument=instrument,config=config,param_dict=param_dict,task='api/v1.0/lightcurve/')
 
         return q
 
@@ -192,6 +205,7 @@ class PolarLightCurveQuery(LightCurveQuery):
 
         _names = []
         _lc_path = []
+        _root_path=[]
         _html_fig = []
 
         _data_list=[]
@@ -203,6 +217,8 @@ class PolarLightCurveQuery(LightCurveQuery):
             if api == False:
                 _names.append(query_lc.name)
                 _lc_path.append(str(query_lc.file_path.name))
+                _root_path.append(str(query_lc.root_file_path.name))
+                print ('_root_path',_root_path)
                 #x_label='MJD-%d  (days)' % mjdref,y_label='Rate  (cts/s)'
                 _html_fig.append(query_lc.get_html_draw(x=query_lc.data.data_unit[0].data['time'],
                                                         y=query_lc.data.data_unit[0].data['rate'],
@@ -223,6 +239,7 @@ class PolarLightCurveQuery(LightCurveQuery):
         else:
             query_out.prod_dictionary['name'] = _names
             query_out.prod_dictionary['file_name'] = _lc_path
+            query_out.prod_dictionary['root_file_name'] = _root_path
             query_out.prod_dictionary['image'] =_html_fig
             query_out.prod_dictionary['download_file_name'] = 'light_curves.tar.gz'
 
