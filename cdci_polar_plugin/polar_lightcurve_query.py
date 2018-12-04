@@ -106,7 +106,7 @@ class PolarLigthtCurve(LightCurveProduct):
 
 
 
-        file_name = prod_prefix + '_' + src_name+'.fits'
+        file_name =  src_name+'.fits'
         print ('file name',file_name)
 
         meta_data={}
