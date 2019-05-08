@@ -213,8 +213,9 @@ class PolarLightCurveQuery(LightCurveQuery):
         _binary_data_list=[]
         for query_lc in prod_list.prod_list:
             print('->name',query_lc.name)
-
+            query_lc.add_url_to_fits_file(instrument._current_par_dic, url=instrument.disp_conf.products_url)
             query_lc.write()
+
             if api == False:
                 _names.append(query_lc.name)
                 _lc_path.append(str(query_lc.file_path.name))
