@@ -45,7 +45,7 @@ import ddosaclient as dc
 import  numpy as np
 import pandas as pd
 from astropy.table import Table
-
+import  json
 from pathlib import Path
 
 from astropy.io import fits as pf
@@ -58,6 +58,25 @@ from oda_api.data_products import NumpyDataProduct,NumpyDataUnit,BinaryData
 from .polar_dataserve_dispatcher import PolarDispatcher
 from .polar_dataserve_dispatcher import  PolarAnalysisException
 
+
+class DummyPolarRes(object):
+
+    def __init__(self):
+        pass
+    def json(self):
+
+        data = NumpyDataProduct.from_fits_file(self.dummy_lc)
+        lc = data.get_data_unit_by_name('POLAR_LC')
+
+        data = dict(rate=lc.data['rate'].tolist())
+        data['rate_err'] = lc.data['rate_err'].tolist()
+        data['time'] = lc.data['time'].tolist()
+        data = json.dumps(data)
+        _d = dict(data=data)
+        _d['status'] = dict(success=True)
+        _d['status']['exceptions']=[None]
+        _d['root_file_b64']=self.dummy_root
+        return _d
 
 class PolarLigthtCurve(LightCurveProduct):
     def __init__(self,name,file_name,data,header,prod_prefix=None,out_dir=None,src_name=None,meta_data={}):
@@ -88,7 +107,8 @@ class PolarLigthtCurve(LightCurveProduct):
                              src_name='',
                              prod_prefix='polar_lc',
                              out_dir=None,
-                             delta_t=None):
+                             delta_t=None,
+                             skip_root=False):
 
 
 
@@ -114,6 +134,8 @@ class PolarLigthtCurve(LightCurveProduct):
         meta_data['time_bin'] = delta_t
 
         res_json = res.json()
+        #print(res_json)
+        #print(type(res_json))
         df = pd.read_json(res_json['data'])
 
         root_file_path= prod_prefix + '_' + src_name+'.root'
@@ -128,7 +150,7 @@ class PolarLigthtCurve(LightCurveProduct):
             data['rate_err'] = df['rate_err']
             data['time'] = df['time']
             npd = NumpyDataProduct(data_unit=NumpyDataUnit(data=data,
-                                                           hdu_type='table'),meta_data=meta_data)
+                                                           hdu_type='bintable',name='POLAR_LC'),meta_data=meta_data)
 
             lc = cls(name=src_name, data=npd, header=None, file_name=file_name, out_dir=out_dir, prod_prefix=prod_prefix,
                      src_name=src_name,meta_data=meta_data)
@@ -141,12 +163,16 @@ class PolarLigthtCurve(LightCurveProduct):
             raise PolarAnalysisException(message='polar light curve failed: %s'%_d['comment'],debug_message=_d['kind'])
 
 
-        try:
-            open(root_file_path.path, "wb").write(BinaryData().decode(res_json['root_file_b64']))
-            lc.root_file_path=root_file_path
-            #lc.root_file_b64=res_json['root_file_b64']
-        except :
-            raise PolarAnalysisException(message='polar failed to open/decode root_file')
+        if skip_root is False:
+            try:
+                open(root_file_path.path, "wb").write(BinaryData().decode(res_json['root_file_b64']))
+                lc.root_file_path=root_file_path
+                #lc.root_file_b64=res_json['root_file_b64']
+            except Exception as e:
+                print(e)
+                raise PolarAnalysisException(message='polar failed to open/decode root_file')
+        else:
+            lc.root_file_path=None
 
         lc_list.append(lc)
 
@@ -160,7 +186,7 @@ class PolarLightCurveQuery(LightCurveQuery):
 
         super(PolarLightCurveQuery, self).__init__(name)
 
-    def build_product_list(self, instrument, res, out_dir, prod_prefix='polar_lc',api=False):
+    def build_product_list(self, instrument, res, out_dir, prod_prefix='polar',api=False):
 
         delta_t = instrument.get_par_by_name('time_bin')._astropy_time_delta.sec
         prod_list = PolarLigthtCurve.build_from_res(res,
@@ -186,7 +212,7 @@ class PolarLightCurveQuery(LightCurveQuery):
         delta_t = instrument.get_par_by_name('time_bin')._astropy_time_delta.sec
         param_dict=self.set_instr_dictionaries(T1,T2,E1,E2,delta_t)
 
-        print ('build here',config,instrument)
+        #print ('build here',config,instrument)
         q = PolarDispatcher(instrument=instrument,config=config,param_dict=param_dict,task='api/v1.0/lightcurve/')
 
         return q
@@ -212,19 +238,20 @@ class PolarLightCurveQuery(LightCurveQuery):
         _data_list=[]
         _binary_data_list=[]
         for query_lc in prod_list.prod_list:
-            print('->name',query_lc.name)
+            #print('->name',query_lc.name)
             query_lc.add_url_to_fits_file(instrument._current_par_dic, url=instrument.disp_conf.products_url)
             query_lc.write()
 
             if api == False:
                 _names.append(query_lc.name)
                 _lc_path.append(str(query_lc.file_path.name))
-                _root_path.append(str(query_lc.root_file_path.name))
-                print ('_root_path',_root_path)
+                if query_lc.root_file_path is not None:
+                    _root_path.append(str(query_lc.root_file_path.name))
+                #print ('_root_path',_root_path)
                 #x_label='MJD-%d  (days)' % mjdref,y_label='Rate  (cts/s)'
-                _html_fig.append(query_lc.get_html_draw(x=query_lc.data.data_unit[0].data['time'],
-                                                        y=query_lc.data.data_unit[0].data['rate'],
-                                                        dy=query_lc.data.data_unit[0].data['rate_err'],
+                _html_fig.append(query_lc.get_html_draw(x=query_lc.data.data_unit[1].data['time'],
+                                                        y=query_lc.data.data_unit[1].data['rate'],
+                                                        dy=query_lc.data.data_unit[1].data['rate_err'],
                                                         title='Start Time: %s'%instrument.get_par_by_name('T1')._astropy_time.utc.value,
                                                         x_label='Time  (s)',
                                                         y_label='Rate  (cts/s)'))
@@ -236,8 +263,9 @@ class PolarLightCurveQuery(LightCurveQuery):
                 #    lc.root_file_path = root_file_path
                 #except:
                 #    pass
-                _d,md=BinaryData(str(query_lc.root_file_path)).encode()
-                _binary_data_list.append(_d)
+                if query_lc.root_file_path is not None:
+                    _d,md=BinaryData(str(query_lc.root_file_path)).encode()
+                    _binary_data_list.append(_d)
 
         query_out = QueryOutput()
 
@@ -256,28 +284,30 @@ class PolarLightCurveQuery(LightCurveQuery):
 
         return query_out
 
-    def get_dummy_products(self, instrument, config, out_dir='./'):
-        raise RuntimeError('method to implement')
+    def get_dummy_products(self, instrument, config, out_dir='./',prod_prefix='polar',api=False):
+        #print('config',config)
+        meta_data = {'product': 'light_curve', 'instrument': 'isgri', 'src_name': ''}
+        meta_data['query_parameters'] = self.get_parameters_list_as_json()
 
-        # src_name = instrument.get_par_by_name('src_name').value
+        dummy_cache = config.dummy_cache
+
+        res = DummyPolarRes()
+        res.__setattr__('dummy_src', 'dummy_src')
+        res.__setattr__('dummy_lc', '%s/polar_query_lc.fits' % dummy_cache)
+        res.__setattr__('dummy_root', '%s/polar_query_lc.root' % dummy_cache)
+        res.__setattr__('extracted_sources', [('dummy_src', 'dummy_lc')])
+
+        prod_list=PolarLigthtCurve.build_from_res(res,
+                                        src_name='lc',
+                                        prod_prefix=prod_prefix,
+                                        out_dir=out_dir,
+                                        skip_root=True)
+
+
+
+        prod_list = QueryProductList(prod_list=prod_list)
         #
-        # dummy_cache = config.dummy_cache
-        # delta_t = instrument.get_par_by_name('time_bin')._astropy_time_delta.sec
-        # print('delta_t is sec', delta_t)
-        # query_lc = LightCurveProduct.from_fits_file(inf_file='%s/query_lc.fits' % dummy_cache,
-        #                                             out_file_name='query_lc.fits',
-        #                                             prod_name='isgri_lc',
-        #                                             ext=1,
-        #                                             file_dir=out_dir)
-        # print('name', query_lc.header['NAME'])
-        # query_lc.name=query_lc.header['NAME']
-        # #if src_name is not None:
-        # #    if query_lc.header['NAME'] != src_name:
-        # #        query_lc.data = None
-        #
-        # prod_list = QueryProductList(prod_list=[query_lc])
-        #
-        # return prod_list
+        return prod_list
 
 
 
