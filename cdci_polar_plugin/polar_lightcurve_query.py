@@ -54,6 +54,7 @@ from cdci_data_analysis.analysis.queries import LightCurveQuery
 from cdci_data_analysis.analysis.products import LightCurveProduct,QueryProductList,QueryOutput
 from cdci_data_analysis.analysis.io_helper import FilePath
 from oda_api.data_products import NumpyDataProduct,NumpyDataUnit,BinaryData
+from cdci_data_analysis.configurer import DataServerConf
 
 from .polar_dataserve_dispatcher import PolarDispatcher
 from .polar_dataserve_dispatcher import  PolarAnalysisException
@@ -285,6 +286,11 @@ class PolarLightCurveQuery(LightCurveQuery):
         return query_out
 
     def get_dummy_products(self, instrument, config, out_dir='./',prod_prefix='polar',api=False):
+        config = DataServerConf(data_server_url=instrument.data_server_conf_dict['data_server_url'],
+                                data_server_port=instrument.data_server_conf_dict['data_server_port'],
+                                data_server_remote_cache=instrument.data_server_conf_dict['data_server_cache'],
+                                dispatcher_mnt_point=instrument.data_server_conf_dict['dispatcher_mnt_point'],
+                                dummy_cache=instrument.data_server_conf_dict['dummy_cache'])
         #print('config',config)
         meta_data = {'product': 'light_curve', 'instrument': 'isgri', 'src_name': ''}
         meta_data['query_parameters'] = self.get_parameters_list_as_json()
